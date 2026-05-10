@@ -1,0 +1,74 @@
+# Kiro Proxy Assistant 配置文件
+# 复制此文件为 config.yaml 并填入你的配置
+# cp config.yaml.example config.yaml
+
+# LiteLLM 代理配置（默认兜底 Provider）
+litellm:
+  base_url: "https://your-litellm-server.com"  # 你的 LiteLLM 服务地址
+  api_key: "sk-your-api-key"                   # API Key，支持 ${ENV_VAR} 语法
+  timeout: 60
+  retries: 2                                    # 5xx/timeout 自动重试次数
+
+# 直连 Provider（可选，不经过 LiteLLM）
+# 路由策略：优先按模型名匹配 direct_providers，未命中则回退到 litellm
+direct_providers:
+  deepseek:
+    api_base: "https://api.deepseek.com"
+    api_key: "${DEEPSEEK_API_KEY}"              # 从环境变量读取
+    models: ["deepseek-v3", "deepseek-r1"]
+    extra_body:                                 # Provider 特有参数
+      thinking: true
+  openai:
+    api_base: "https://api.openai.com"
+    api_key: "${OPENAI_API_KEY}"
+    models: ["gpt-4o", "gpt-4o-mini"]
+
+# 代理监听配置
+proxy:
+  port: 7080
+  host: "127.0.0.1"
+
+# 模型路由配置
+model_routing:
+  # agent-mode 直接映射
+  intent_classification: "gemini-3.1-flash-lite"
+  vibe_default: "deepseek-v3"
+
+  # 任务类型 → 模型映射
+  task_models:
+    code: "deepseek-v3"
+    analysis: "gemini-3-flash"
+    creative: "claude-sonnet-4.5"
+    simple: "gemini-3.1-flash-lite"
+
+  # 强制覆盖（留空则使用自动路由）
+  override: ""
+
+# 日志配置
+logging:
+  # 基本日志级别（控制台输出）
+  level: "INFO"  # DEBUG / INFO / WARNING / ERROR
+
+  # 文件日志配置
+  file: "~/.kiro-proxy/proxy.log"
+  max_file_size: "10MB"  # KB/MB/GB
+  backup_count: 5
+
+  # 详细日志级别（用于调试和问题分析）
+  # 0: minimal - 只记录错误和关键信息
+  # 1: normal - 记录处理流程（默认）
+  # 2: detailed - 记录请求/响应摘要
+  # 3: full - 记录完整请求/响应内容（可能很大）
+  # 注意: detail_level 仅在全局 level 为 DEBUG 时生效
+  detail_level: 1
+
+  # 模块特定日志级别（覆盖全局设置）
+  modules:
+    request_converter: "INFO"
+    response_adapter: "INFO"
+    eventstream: "INFO"
+    tool_calls: "INFO"
+
+  # 原始数据捕获（用于调试）
+  enable_capture: false
+  capture_path: "~/.kiro-proxy/captures/"
