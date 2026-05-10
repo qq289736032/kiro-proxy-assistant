@@ -5,7 +5,7 @@ Thanks for your interest! This project is in early stage and contributions are w
 ## Getting Started
 
 1. Fork and clone the repo
-2. Install dev dependencies: `pip install -e ".[dev]"`
+2. Install dev dependencies: `python3 -m pip install -e ".[dev]"`
 3. Run tests: `pytest tests/ -v`
 
 ## Making Changes

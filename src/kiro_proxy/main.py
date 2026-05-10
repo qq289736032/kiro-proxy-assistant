@@ -13,6 +13,18 @@ PID_FILE = Path.home() / ".kiro-proxy" / "proxy.pid"
 MITMPROXY_SCRIPT = Path(__file__).parent / "kiro_mitmproxy.py"
 
 
+def _default_port() -> int:
+    """从 config.yaml 读取默认端口，不存在则返回 9080。"""
+    import yaml
+    config_path = Path(__file__).parent.parent.parent / "config.yaml"
+    try:
+        with open(config_path) as f:
+            cfg = yaml.safe_load(f) or {}
+        return cfg.get("proxy", {}).get("port", 9080)
+    except Exception:
+        return 9080
+
+
 @click.group(invoke_without_command=True)
 @click.version_option(version=__version__)
 @click.pass_context
@@ -23,8 +35,10 @@ def cli(ctx):
 
 
 @cli.command()
-@click.option("--port", default=9080, help="Proxy listen port")
+@click.option("--port", default=None, help="Proxy listen port (default: from config.yaml)")
 def start(port):
+    if port is None:
+        port = _default_port()
     """Start the Kiro proxy server."""
     if PID_FILE.exists():
         pid = int(PID_FILE.read_text().strip())

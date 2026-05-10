@@ -205,7 +205,12 @@ class KiroProxyAddon:
 
         # Provider 路由（替代硬编码的 LiteLLM 调用）
         self.provider_router = build_router(_DEFAULT_CONFIG)
-        logger.info("KiroProxyAddon initialized with provider router")
+
+        # 从配置读取代理地址
+        proxy_cfg = config.get("proxy", {})
+        proxy_host = proxy_cfg.get("host", "127.0.0.1")
+        proxy_port = proxy_cfg.get("port", 9080)
+        logger.info(f"KiroProxyAddon initialized, proxy at http://{proxy_host}:{proxy_port}")
 
     def done(self) -> None:
         """mitmproxy 停止时释放 Provider 资源。"""

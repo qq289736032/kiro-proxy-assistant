@@ -33,6 +33,9 @@ class LiteLLMProvider(Provider):
         Returns:
             OpenAI 格式的响应，失败返回 None
         """
+        # 自动回退模型名
+        request = self._resolve_request_model(request)
+
         url = f"{self.config.api_base.rstrip('/')}/v1/chat/completions"
         headers = {"Content-Type": "application/json"}
         if self.config.api_key:

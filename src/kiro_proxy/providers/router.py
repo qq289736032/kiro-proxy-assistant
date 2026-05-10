@@ -58,6 +58,7 @@ class ProviderRouter:
         """根据模型名获取对应的 Provider。
 
         先尝试精确匹配，再回退到默认 Provider。
+        如两者都不可用，回退到任意已注册的 DirectProvider。
 
         Args:
             model: 模型名（已通过 ModelNameMapper 解析）
@@ -73,6 +74,12 @@ class ProviderRouter:
             return self._providers[provider_name]
         if self._default_provider:
             return self._default_provider
+        # 回退到任意已注册的 Provider
+        if self._providers:
+            fallback = next(iter(self._providers.values()))
+            logger.info("Model '%s' not registered, falling back to provider '%s'",
+                           model, fallback.config.name)
+            return fallback
         raise ValueError(f"No provider found for model '{model}'")
 
     def resolve_model(self, kiro_model_id: str) -> str:
@@ -110,26 +117,34 @@ def build_router(config_path: Path) -> ProviderRouter:
     raw = _load_config_yaml(config_path)
     router = ProviderRouter()
 
-    # 1. LiteLLMProvider（总是构建，向后兼容）
+    # 1. LiteLLMProvider（默认兜底）
     litellm_cfg = raw.get("litellm", {})
-    litellm_timeout = litellm_cfg.get("timeout", 60)
-    litellm_provider = LiteLLMProvider(ProviderConfig(
-        name="litellm",
-        api_base=resolve_env(litellm_cfg.get("base_url", "https://test-ai.igovee.com")),
-        api_key=resolve_env(litellm_cfg.get("api_key", "")),
-        models=[],
-        extra_body={"retries": litellm_cfg.get("retries", 2)} if "retries" in litellm_cfg else None,
-    ), timeout=float(litellm_timeout))
-    router.set_default(litellm_provider)
+    if litellm_cfg.get("enabled", True):
+        litellm_timeout = litellm_cfg.get("timeout", 60)
+        litellm_provider = LiteLLMProvider(ProviderConfig(
+            name="litellm",
+            api_base=resolve_env(litellm_cfg.get("base_url", "https://test-ai.igovee.com")),
+            api_key=resolve_env(litellm_cfg.get("api_key", "")),
+            models=[],
+            default_model=litellm_cfg.get("default_model"),
+            extra_body={"retries": litellm_cfg.get("retries", 2)} if "retries" in litellm_cfg else None,
+        ), timeout=float(litellm_timeout))
+        router.set_default(litellm_provider)
+    else:
+        logger.info("LiteLLM provider disabled by config")
 
     # 2. DirectProvider（可选）
     for name, cfg in raw.get("direct_providers", {}).items():
+        if not cfg.get("enabled", True):
+            logger.info(f"DirectProvider '{name}' disabled by config")
+            continue
         timeout = cfg.get("timeout", 60)
         direct_provider = DirectProvider(ProviderConfig(
             name=name,
             api_base=resolve_env(cfg["api_base"]),
             api_key=resolve_env(cfg["api_key"]),
             models=cfg.get("models", []),
+            default_model=cfg.get("default_model"),
             extra_body=cfg.get("extra_body"),
         ), timeout=float(timeout))
         router.register(direct_provider)
@@ -138,5 +153,12 @@ def build_router(config_path: Path) -> ProviderRouter:
     mapping_cfg = raw.get("model_name_mapping", {})
     if mapping_cfg:
         router.set_model_mapper(ModelNameMapper(mapping_cfg))
+
+    # 4. 检查至少有一个 Provider 可用
+    if not router._default_provider and not router._providers:
+        raise RuntimeError(
+            "No provider available: LiteLLM and all direct providers are disabled or not configured. "
+            "Enable at least one provider in config.yaml"
+        )
 
     return router

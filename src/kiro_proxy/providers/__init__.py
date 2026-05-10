@@ -43,12 +43,14 @@ class ProviderConfig:
         api_base: API 端点 URL（如 "https://api.deepseek.com"）
         api_key: API 密钥，支持 ${ENV_VAR} 语法
         models: 此 Provider 支持的模型列表。空列表表示可处理任何模型（用于默认 Provider）。
+        default_model: 当请求的模型不在 models 列表中时，自动回退到此模型。
         extra_body: Provider 特有参数（如 DeepSeek 的 thinking），会在 complete() 中合并到请求。
     """
     name: str
     api_base: str
     api_key: str
     models: list = field(default_factory=list)
+    default_model: Optional[str] = None
     extra_body: Optional[dict] = None
 
 
@@ -61,6 +63,21 @@ class Provider(ABC):
 
     def __init__(self, config: ProviderConfig):
         self.config = config
+
+    def _resolve_request_model(self, request: dict) -> dict:
+        """如果请求的模型不在本 Provider 的 models 列表中，自动回退到 default_model。
+
+        这允许 model_routing 中写任意模型名，Provider 自动映射为实际可用的模型。
+        """
+        model = request.get("model", "")
+        if self.config.default_model and self.config.models and model not in self.config.models:
+            logger.info(
+                "Model '%s' not in provider '%s' model list, "
+                "falling back to default_model '%s'",
+                model, self.config.name, self.config.default_model,
+            )
+            request = {**request, "model": self.config.default_model}
+        return request
 
     @abstractmethod
     def complete(self, request: dict) -> dict:

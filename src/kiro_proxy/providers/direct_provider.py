@@ -23,7 +23,8 @@ class DirectProvider(Provider):
     def complete(self, request: dict) -> Optional[dict]:
         """调用远端 API。
 
-        在发送前会将配置中的 extra_body 合并到请求中。
+        在发送前会将配置中的 extra_body 合并到请求中，
+        并自动回退 default_model（如果请求的模型不在 models 列表中）。
 
         Args:
             request: OpenAI 格式的请求 dict
@@ -31,6 +32,9 @@ class DirectProvider(Provider):
         Returns:
             OpenAI 格式的响应，失败返回 None
         """
+        # 自动回退模型名
+        request = self._resolve_request_model(request)
+
         # 合并配置中的 extra_body 到请求
         if self.config.extra_body:
             existing = request.get("extra_body", {}) or {}

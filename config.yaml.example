@@ -4,24 +4,31 @@
 
 # LiteLLM 代理配置（默认兜底 Provider）
 litellm:
+  enabled: true                                 # 设为 false 可完全禁用 LiteLLM
   base_url: "https://your-litellm-server.com"  # 你的 LiteLLM 服务地址
   api_key: "sk-your-api-key"                   # API Key，支持 ${ENV_VAR} 语法
   timeout: 60
   retries: 2                                    # 5xx/timeout 自动重试次数
+  # default_model: "gpt-4o"                    # 未命中 models 时的回退模型（可选）
 
 # 直连 Provider（可选，不经过 LiteLLM）
-# 路由策略：优先按模型名匹配 direct_providers，未命中则回退到 litellm
+# 路由策略：优先按模型名匹配 direct_providers → 默认 litellm → 任意直连回退
+# 模型自动回退：如果请求的模型不在 Provider 列表中，default_model 生效
 direct_providers:
   deepseek:
+    enabled: true                               # 设为 false 可禁用此 Provider
     api_base: "https://api.deepseek.com"
     api_key: "${DEEPSEEK_API_KEY}"              # 从环境变量读取
-    models: ["deepseek-v3", "deepseek-r1"]
+    models: ["deepseek-v4-pro", "deepseek-v4-flash", "deepseek-r1"]
+    default_model: "deepseek-v4-pro"            # 未知模型自动回退到此模型
     extra_body:                                 # Provider 特有参数
       thinking: true
   openai:
+    enabled: true                               # 设为 false 可禁用此 Provider
     api_base: "https://api.openai.com"
     api_key: "${OPENAI_API_KEY}"
     models: ["gpt-4o", "gpt-4o-mini"]
+    default_model: "gpt-4o"                     # 未知模型自动回退到此模型
 
 # 代理监听配置
 proxy:

@@ -19,7 +19,7 @@ Kiro Proxy Assistant 是一个中间人代理，将 Kiro IDE 的 AI 请求路由
 cd /Users/jisen/project/WorkTool/kiro-proxy-assistant
 
 # 安装依赖
-pip install -e .
+python3 -m pip install -e .
 
 # 安装 mitmproxy CA 证书（仅首次）
 sudo security add-trusted-cert -d -r trustRoot \
@@ -158,10 +158,12 @@ kiro-proxy start --help
 
 ```yaml
 litellm:
+  enabled: true                                 # 可选，设为 false 禁用 LiteLLM（默认 true）
   base_url: "https://your-litellm-server.com"  # 必需
   api_key: "sk-..."                            # 必需，支持 ${ENV_VAR} 语法
   timeout: 60                                   # 可选，默认 60 秒
   retries: 2                                    # 可选，5xx/timeout 重试次数
+  default_model: "gpt-4o"                      # 可选，未知模型自动回退到此模型
 ```
 
 ### 直连 Provider 配置
@@ -169,16 +171,30 @@ litellm:
 ```yaml
 direct_providers:
   provider_name:                               # 自定义名称
+    enabled: true                              # 可选，设为 false 禁用此 Provider（默认 true）
     api_base: "https://api.provider.com"       # 必需
     api_key: "${API_KEY}"                      # 必需，支持环境变量引用
     models:                                    # 必需，该 Provider 支持的模型列表
       - "model-a"
       - "model-b"
+    default_model: "model-a"                   # 可选，未知模型自动回退到此模型
     extra_body:                                # 可选，Provider 特有参数
       thinking: true
 ```
 
-路由策略：优先按模型名匹配 `direct_providers`，未命中则回退到 `litellm` 默认 Provider。
+### 路由策略
+
+路由引擎按以下优先级选择 Provider：
+
+1. **模型精确匹配** — 请求中的模型名在某个 DirectProvider 的 `models` 列表中 → 使用该 Provider
+2. **默认兜底** — 未命中时，回退到 `litellm`（如果启用）
+3. **自动回退** — 无默认 Provider 时，使用任意已注册的 DirectProvider
+
+### 自动模型回退
+
+当请求的模型名不在选中 Provider 的 `models` 列表中时，如果配置了 `default_model`，会自动替换为该模型再发起 API 调用。
+
+> 这允许 `model_routing` 中写任意模型名，即使关掉某个 Provider，请求也能无缝切换到其他 Provider 的默认模型。
 
 ### 模型路由配置
 
@@ -546,7 +562,7 @@ cd /Users/jisen/project/WorkTool/kiro-proxy-assistant
 git pull
 
 # 重新安装
-pip install -e .
+python3 -m pip install -e .
 
 # 重启代理
 kiro-proxy restart

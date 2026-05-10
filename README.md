@@ -47,37 +47,82 @@ Kiro IDE                        Kiro Proxy Assistant              Your LLM Backe
 
 ### 1. Install
 
+**macOS / Linux:**
+
 ```bash
 git clone https://github.com/qq289736032/kiro-proxy-assistant.git
 cd kiro-proxy-assistant
-python -m venv venv
+python3 -m venv venv
 source venv/bin/activate
-pip install -e .
+python3 -m pip install -e .
 ```
 
-Trust the mitmproxy CA certificate:
+**Windows (PowerShell):**
+
+```powershell
+git clone https://github.com/qq289736032/kiro-proxy-assistant.git
+cd kiro-proxy-assistant
+python -m venv venv
+venv\Scripts\activate
+python -m pip install -e .
+```
+
+### 2. Trust mitmproxy CA certificate
+
+**macOS:**
 
 ```bash
-mitmdump --listen-port 7080 &  # generates certificate on first run
+mitmdump --listen-port 7080 &
 sleep 2 && kill %1
-
 sudo security add-trusted-cert -d -r trustRoot \
   -k /Library/Keychains/System.keychain \
   ~/.mitmproxy/mitmproxy-ca-cert.pem
 ```
 
-### 2. Configure
+**Windows (Admin PowerShell):**
 
-```bash
-cp config.yaml.example config.yaml
-# Edit config.yaml with your LLM endpoint and API key
+```powershell
+mitmdump --listen-port 7080
+# Open another Admin terminal:
+certutil -addstore Root %USERPROFILE%\.mitmproxy\mitmproxy-ca-cert.pem
 ```
 
-### 3. Start
+**Linux:**
 
 ```bash
+mitmdump --listen-port 7080 &
+sleep 2 && kill %1
+sudo cp ~/.mitmproxy/mitmproxy-ca-cert.pem /usr/local/share/ca-certificates/
+sudo update-ca-certificates
+```
+
+### 3. Configure
+
+```bash
+# macOS / Linux
+cp config.yaml.example config.yaml
+
+# Windows
+copy config.yaml.example config.yaml
+```
+
+Edit `config.yaml` with your LLM endpoint and API key.
+
+### 4. Start
+
+```bash
+# macOS / Linux — activate venv first (new terminal)
+source venv/bin/activate
+kiro-proxy start
+
+# Windows — activate venv first (new terminal)
+venv\Scripts\activate
 kiro-proxy start
 ```
+
+> After installation, you can also run `python3 -m kiro_proxy start` (or `python -m kiro_proxy start` on Windows) without activating the venv.
+
+### 5. Configure Kiro
 
 ### 4. Configure Kiro
 
@@ -100,7 +145,8 @@ Send a message in Kiro and verify with `kiro-proxy logs`.
 | `kiro-proxy logs` | Tail real-time logs |
 | `kiro-proxy stats` | View request statistics |
 | `kiro-proxy setup` | Show configuration guide |
-| `kiro-proxy start --port 7080` | Start on a custom port |
+
+> Run `source venv/bin/activate` (macOS/Linux) or `venv\Scripts\activate` (Windows) in new terminals before using `kiro-proxy`. Alternatively, use `python3 -m kiro_proxy` (`python -m kiro_proxy` on Windows) without activation.
 
 ## Configuration
 
@@ -125,11 +171,17 @@ export KIRO_PROXY_LOG_LEVEL="DEBUG"
 ## Development
 
 ```bash
+# Activate venv (if not already)
+source venv/bin/activate
+
 # Run tests
 pytest tests/ -v
 
 # Run proxy in foreground with verbose logging
 mitmdump -p 7080 -s src/kiro_proxy/kiro_mitmproxy.py -v
+
+# Or use Python module mode (no activation needed)
+python3 -m kiro_proxy start
 
 # Code structure
 src/kiro_proxy/
