@@ -7,6 +7,7 @@ import os
 import signal
 from pathlib import Path
 from . import __version__
+from . import cert_manager
 
 
 PID_FILE = Path.home() / ".kiro-proxy" / "proxy.pid"
@@ -216,6 +217,92 @@ def stats():
     click.echo("Model Usage:")
     for model, count in s.get("model_usage", {}).items():
         click.echo(f"  {model}: {count}")
+
+
+@cli.command()
+def install_cert():
+    """Generate and install the mitmproxy CA certificate (one-step setup)."""
+    if cert_manager.is_installed():
+        click.echo("✓ CA certificate is already installed and trusted")
+        click.echo("  Use 'kiro-proxy reinstall-cert' to reinstall")
+        return
+
+    if not cert_manager.generate():
+        return
+
+    click.echo()
+    if not cert_manager.install():
+        return
+
+    click.echo()
+    click.echo("Verifying installation...")
+    cert_manager.check()
+
+
+@cli.command()
+def reinstall_cert():
+    """Force regenerate and reinstall the CA certificate."""
+    click.echo("Reinstalling CA certificate...")
+    if cert_manager.is_installed() or cert_manager.cert_exists():
+        click.echo("  Removing old certificate...")
+        cert_manager.remove()
+
+    if not cert_manager.generate():
+        return
+
+    click.echo()
+    if not cert_manager.install():
+        return
+
+    click.echo()
+    click.echo("Verifying installation...")
+    cert_manager.check()
+
+
+@cli.command()
+@click.option("--force", is_flag=True, help="Skip confirmation prompt")
+@click.option("--keep-files", is_flag=True, help="Remove from trust store but keep certificate files on disk")
+def remove_cert(force, keep_files):
+    """Remove the CA certificate from system trust store.
+
+    By default, both system trust and certificate files are removed.
+    Use --keep-files to only remove system trust but keep files for later re-use.
+    """
+    in_trust = cert_manager.is_installed()
+    files_exist = cert_manager.cert_exists()
+
+    if not in_trust and not files_exist:
+        click.echo("Nothing to remove — certificate is not in trust store and no files found.")
+        return
+
+    if keep_files and not in_trust:
+        click.echo("Certificate is not in system trust store. Nothing to do with --keep-files.")
+        return
+
+    # Show preview and ask for confirmation
+    if not force:
+        click.echo("Looking up installed certificate...")
+        click.echo()
+        if not cert_manager.preview_removal():
+            return
+        if in_trust:
+            click.echo("Remove this certificate from system trust store?")
+        else:
+            click.echo("Certificate files still exist on disk. Delete them?")
+        click.confirm("  Continue?", abort=True)
+
+    click.echo()
+    if in_trust:
+        click.echo("Removing from system trust store...")
+    cert_manager.remove(keep_files=keep_files)
+    click.echo()
+    click.echo("✓ Done. Run 'kiro-proxy install-cert' to reinstall anytime.")
+
+
+@cli.command()
+def check_cert():
+    """Check CA certificate status."""
+    cert_manager.check()
 
 
 if __name__ == "__main__":
