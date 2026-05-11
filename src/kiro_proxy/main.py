@@ -1,5 +1,7 @@
 """Kiro Proxy Assistant CLI 入口。"""
 
+import json
+import tempfile
 import click
 import subprocess
 import sys
@@ -24,6 +26,43 @@ def _default_port() -> int:
         return cfg.get("proxy", {}).get("port", 9080)
     except Exception:
         return 9080
+
+
+def _configure_kiro_proxy(port: int) -> None:
+    """自动配置 Kiro IDE 的 HTTP 代理设置。
+
+    读取 Kiro 的 settings.json，写入 http.proxy 配置。
+    如果已经配置为相同值则跳过，避免不必要的写入。
+    """
+    kiro_settings = Path.home() / "Library" / "Application Support" / "Kiro" / "User" / "settings.json"
+    if not kiro_settings.exists():
+        click.echo(f"  (Kiro settings not found at {kiro_settings}, skipping proxy config)")
+        return
+
+    proxy_url = f"http://127.0.0.1:{port}"
+
+    try:
+        settings = json.loads(kiro_settings.read_text(encoding="utf-8"))
+        current = settings.get("http.proxy", "")
+
+        if current == proxy_url:
+            click.echo(f"  ✓ Kiro HTTP proxy already set to {proxy_url}")
+            return
+
+        settings["http.proxy"] = proxy_url
+        # 原子写入：先写临时文件再 rename，避免崩溃导致 settings.json 损坏
+        fd, tmp_path = tempfile.mkstemp(dir=kiro_settings.parent, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(settings, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, kiro_settings)
+        except Exception:
+            Path(tmp_path).unlink(missing_ok=True)
+            raise
+        click.echo(f"  ✓ Kiro HTTP proxy configured: {proxy_url}")
+
+    except Exception as e:
+        click.echo(f"  ⚠ Failed to configure Kiro proxy: {e}")
 
 
 @click.group(invoke_without_command=True)
@@ -60,6 +99,9 @@ def start(port):
             return
 
     click.echo(f"Starting Kiro proxy on port {port}...")
+
+    # 自动配置 Kiro HTTP 代理
+    _configure_kiro_proxy(port)
 
     log_file = Path.home() / ".kiro-proxy" / "proxy.log"
     log_file.parent.mkdir(parents=True, exist_ok=True)

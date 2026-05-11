@@ -21,6 +21,7 @@ if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
 import yaml
+import httpx
 from mitmproxy import http
 
 from kiro_proxy.request_converter import RequestConverter
@@ -109,6 +110,7 @@ KIRO_BACKEND = "q.us-east-1.amazonaws.com"
 
 # 需要拦截的路径
 INTERCEPT_PATH = "/generateAssistantResponse"
+MODELS_PATH = "/ListAvailableModels"
 
 # 默认配置文件路径（相对于此脚本的项目根目录）
 _DEFAULT_CONFIG = Path(__file__).parent.parent.parent / "config.yaml"
@@ -203,6 +205,9 @@ class KiroProxyAddon:
         # 初始化捕获管理器
         self.capture_manager = CaptureManager(logging_cfg)
 
+        # 保存原始配置供子方法使用（如 _handle_list_available_models）
+        self._raw_config = config
+
         # Provider 路由（替代硬编码的 LiteLLM 调用）
         self.provider_router = build_router(_DEFAULT_CONFIG)
 
@@ -222,7 +227,13 @@ class KiroProxyAddon:
 
     def request(self, flow: http.HTTPFlow) -> None:
         """请求拦截处理。"""
-        # 只处理目标域名
+        # 先拦截 ListAvailableModels（不限域名，方便本地 curl 测试）
+        if flow.request.path.startswith(MODELS_PATH):
+            logger.info(f"Intercepting ListAvailableModels: {flow.request.method} {flow.request.path}")
+            self._handle_list_available_models(flow)
+            return
+
+        # 只处理目标域名（对其他接口保持域名过滤）
         if KIRO_BACKEND not in flow.request.pretty_host:
             return
 
@@ -390,6 +401,87 @@ class KiroProxyAddon:
         """格式化异常信息为字符串。"""
         import traceback
         return "".join(traceback.format_exception(type(e), e, e.__traceback__))
+
+    def _handle_list_available_models(self, flow: http.HTTPFlow) -> None:
+        """处理 ListAvailableModels 请求，返回自定义模型列表。
+
+        从 config.yaml 的 direct_providers + LiteLLM 聚合模型列表，
+        仅暴露非 thinking 模型（如 deepseek-chat），
+        避免 Kiro 用户选择会触发 reasoning_content 400 错误的模型。
+        """
+        raw_config = self._raw_config
+        model_ids = []
+        default_model_id = "deepseek-chat"
+
+        # 1. 从直连 Provider 读取模型列表
+        for provider_name, provider_cfg in raw_config.get("direct_providers", {}).items():
+            models = provider_cfg.get("models", [])
+            default_model_id = provider_cfg.get("default_model", default_model_id)
+            for model_id in models:
+                if self._is_thinking_model(model_id):
+                    logger.info(f"  Filtered out thinking model: {model_id}")
+                    continue
+                model_ids.append(model_id)
+
+        # 2. 从 LiteLLM 获取可用模型列表（作为补充）
+        litellm_cfg = raw_config.get("litellm", {})
+        if litellm_cfg.get("enabled", True):
+            try:
+                base_url = litellm_cfg.get("base_url", "").rstrip("/")
+                api_key = litellm_cfg.get("api_key", "")
+                headers = {"Content-Type": "application/json"}
+                if api_key:
+                    headers["Authorization"] = f"Bearer {api_key}"
+                resp = httpx.get(f"{base_url}/models", headers=headers, timeout=5)
+                if resp.status_code == 200:
+                    for m in resp.json().get("data", []):
+                        mid = m.get("id", "")
+                        if mid and mid not in model_ids and not self._is_thinking_model(mid):
+                            model_ids.append(mid)
+            except Exception as e:
+                logger.warning(f"  Failed to fetch LiteLLM models: {e}")
+
+        # 3. 兜底：至少返回 deepseek-chat
+        if not model_ids:
+            model_ids = [default_model_id]
+
+        logger.info(f"  Available models ({len(model_ids)}): {model_ids}")
+        logger.info(f"  Default model: {default_model_id}")
+
+        # 4. 构造 AWS 标准格式响应
+        _model_entry = lambda mid: {
+            "modelId": mid,
+            "modelName": mid,
+            "description": f"Model: {mid}",
+            "rateMultiplier": 1.0,
+            "rateUnit": "Credit",
+            "supportedInputTypes": ["TEXT", "IMAGE"],
+            "tokenLimits": {"maxInputTokens": 128000, "maxOutputTokens": 64000},
+            "promptCaching": {"supportsPromptCaching": False},
+        }
+
+        response_data = {
+            "defaultModel": _model_entry(default_model_id),
+            "models": [_model_entry(mid) for mid in model_ids],
+            "nextToken": None,
+        }
+
+        flow.response = http.Response.make(
+            200,
+            json.dumps(response_data, ensure_ascii=False).encode("utf-8"),
+            {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+                "Cache-Control": "no-cache",
+            }
+        )
+
+    @staticmethod
+    def _is_thinking_model(model_id: str) -> bool:
+        """判断是否是 thinking/reasoning 模型，这些模型可能返回
+        reasoning_content 导致 Kiro 400 错误。"""
+        lower_id = model_id.lower()
+        return any(kw in lower_id for kw in ["r1", "thinking", "reasoning"])
 
 
 # mitmproxy addon 实例
