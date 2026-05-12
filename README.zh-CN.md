@@ -18,11 +18,14 @@ Kiro IDE                        Kiro Proxy Assistant              Your LLM Backe
    │                                   │  conversationState → OpenAI    │
    │                                   │                                │
    │                                   │  ModelRouter                   │
-   │                                   │  select model by task type     │
+   │                                   │  ├─ override (debug)          │
+   │                                   │  ├─ user selection (Kiro UI)  │
+   │                                   │  └─ content analysis (auto)   │
    │                                   │                                │
    │                                   │  ProviderRouter                │
-   │                                   │  ├─ LiteLLMProvider (default)  │
-   │                                   │  └─ DirectProvider             │
+   │                                   │  ├─ DirectProvider (exact     │
+   │                                   │  │   match via config.models) │
+   │                                   │  └─ LiteLLMProvider (fallback)│
    │                                   ├───────────────────────────────→│
    │                                   │  Chat Completion API           │
    │                                   │←───────────────────────────────│
@@ -38,7 +41,8 @@ Kiro IDE                        Kiro Proxy Assistant              Your LLM Backe
 
 - **模型自由** — 将请求路由到任意 OpenAI 兼容 API（DeepSeek、Gemini、Claude、OpenAI 等）
 - **多 Provider** — 在同一个配置中混合使用 LiteLLM 代理和直连 API
-- **智能路由** — 根据任务类型自动选择模型（代码、分析、创意、简单问答）
+- **智能路由** — 三层模型选择：优先尊重 Kiro UI 下拉菜单选择，其次基于内容自动路由（代码、分析、创意、简单问答）
+- **自定义模型列表** — 拦截 `ListAvailableModels`，聚合所有 provider 的模型列表，过滤掉 thinking 模型
 - **完整工具支持** — 全部 23 个 Kiro 工具透明可用（bash、文件操作、搜索、网页等）
 - **监控** — 请求统计、延迟追踪、模型用量分布
 - **即插即用** — 无需修改 Kiro，仅需配置 HTTP 代理
@@ -199,7 +203,7 @@ kiro-proxy logs
 
 | 命令 | 说明 |
 |------|------|
-| `kiro-proxy start` | 启动代理（后台运行） |
+| `kiro-proxy start` | 启动代理（后台运行，自动配置 Kiro proxy 设置） |
 | `kiro-proxy stop` | 停止代理 |
 | `kiro-proxy restart` | 重启代理 |
 | `kiro-proxy status` | 查看代理运行状态 |
@@ -250,14 +254,17 @@ python3 -m kiro_proxy start
 
 # 代码结构
 src/kiro_proxy/
-├── main.py              # CLI 入口
+├── main.py              # CLI 入口（Click）
+├── cli.py               # CLI 输出格式化
 ├── kiro_mitmproxy.py    # mitmproxy 插件（核心拦截逻辑）
 ├── request_converter.py # conversationState → OpenAI 格式
 ├── response_adapter.py  # OpenAI → AWS EventStream
-├── model_router.py      # 根据任务类型选择模型
+├── model_router.py      # 模型选择（override → 用户选择 → 内容）
 ├── eventstream.py       # AWS EventStream 二进制编解码
 ├── stats_collector.py   # 请求统计
+├── cert_manager.py      # CA 证书生命周期管理
 └── providers/           # LLM 后端抽象
+    ├── __init__.py      # Provider ABC, ProviderConfig, ModelNameMapper
     ├── router.py        # Provider 路由引擎
     ├── litellm_provider.py
     └── direct_provider.py

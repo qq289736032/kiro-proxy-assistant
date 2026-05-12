@@ -19,11 +19,14 @@ Kiro IDE                        Kiro Proxy Assistant              Your LLM Backe
    │                                   │  conversationState → OpenAI    │
    │                                   │                                │
    │                                   │  ModelRouter                   │
-   │                                   │  select model by task type     │
+   │                                   │  ├─ override (debug)          │
+   │                                   │  ├─ user selection (Kiro UI)  │
+   │                                   │  └─ content analysis (auto)   │
    │                                   │                                │
    │                                   │  ProviderRouter                │
-   │                                   │  ├─ LiteLLMProvider (default)  │
-   │                                   │  └─ DirectProvider             │
+   │                                   │  ├─ DirectProvider (exact     │
+   │                                   │  │   match via config.models) │
+   │                                   │  └─ LiteLLMProvider (fallback)│
    │                                   ├───────────────────────────────→│
    │                                   │  Chat Completion API           │
    │                                   │←───────────────────────────────│
@@ -39,7 +42,8 @@ Kiro IDE                        Kiro Proxy Assistant              Your LLM Backe
 
 - **Model freedom** — Route requests to any OpenAI-compatible API (DeepSeek, Gemini, Claude, OpenAI, etc.)
 - **Multi-provider** — Mix LiteLLM proxy and direct API connections in one config
-- **Smart routing** — Auto-selects model based on task type (code, analysis, creative, simple)
+- **Smart routing** — Three-tier model selection: respects Kiro UI dropdown first, falls back to content-based auto-routing (code, analysis, creative, simple)
+- **Custom model list** — Intercepts `ListAvailableModels`, aggregates models from all providers, filters out thinking models
 - **Full tool support** — All 23 Kiro tools work transparently (bash, file ops, search, web, etc.)
 - **Monitoring** — Request stats, latency tracking, model usage breakdown
 - **Drop-in replacement** — No changes to Kiro, just configure HTTP proxy
@@ -204,12 +208,12 @@ If you see intercepted requests, everything is working.
 
 | Command | Description |
 |---------|-------------|
-| `kiro-proxy start` | Start the proxy (background) |
+| `kiro-proxy start` | Start the proxy (background, auto-configures Kiro proxy settings) |
 | `kiro-proxy stop` | Stop the proxy |
 | `kiro-proxy restart` | Restart the proxy |
 | `kiro-proxy status` | Check if proxy is running |
 | `kiro-proxy logs` | Tail real-time logs |
-| `kiro-proxy stats` | View request statistics |
+| `kiro-proxy stats` | View request statistics (counts, model usage, latency) |
 | `kiro-proxy setup` | Show configuration guide |
 | `kiro-proxy install-cert` | Generate and install CA certificate (one step) |
 | `kiro-proxy reinstall-cert` | Force regenerate and reinstall CA certificate |
@@ -255,14 +259,17 @@ python3 -m kiro_proxy start
 
 # Code structure
 src/kiro_proxy/
-├── main.py              # CLI entry point
+├── main.py              # CLI entry point (Click)
+├── cli.py               # CLI output formatter
 ├── kiro_mitmproxy.py    # mitmproxy addon (core interception)
 ├── request_converter.py # conversationState → OpenAI format
 ├── response_adapter.py  # OpenAI → AWS EventStream
-├── model_router.py      # Model selection by task type
+├── model_router.py      # Model selection (override → user → content)
 ├── eventstream.py       # AWS EventStream binary codec
 ├── stats_collector.py   # Request statistics
+├── cert_manager.py      # CA certificate lifecycle management
 └── providers/           # LLM backend abstraction
+    ├── __init__.py      # Provider ABC, ProviderConfig, ModelNameMapper
     ├── router.py        # Provider routing engine
     ├── litellm_provider.py
     └── direct_provider.py

@@ -77,7 +77,13 @@ class ModelRouter:
             logger.debug(f"Intent classification → {model}")
             return model
 
-        # 3. vibe 模式：基于内容分析选择
+        # 3. 如果用户在 Kiro 下拉菜单显式选择了非默认模型，尊重选择
+        #    Kiro 默认 modelId 为 "deepseek-3.2"，用户选其他模型时 modelId 变更为选中值
+        if kiro_model_id and kiro_model_id not in ("deepseek-3.2", "simple-task", ""):
+            logger.info(f"User-selected model: {kiro_model_id}")
+            return kiro_model_id
+
+        # 4. vibe 模式：基于内容分析选择
         task_type = self._identify_task_type(request)
         model = self.task_model_mapping.get(task_type, "deepseek-chat")
         logger.info(f"Task type: {task_type} → Model: {model}")
